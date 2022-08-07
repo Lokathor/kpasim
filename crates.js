@@ -1,1 +1,1 @@
-window.ALL_CRATES = ["kpasim"];
+window.ALL_CRATES = ["bitfrob","bytemuck","kpasim","tinyvec"];
