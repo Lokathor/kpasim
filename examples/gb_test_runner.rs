@@ -29,10 +29,12 @@ fn main() {
   };
 
   let mut cpu = Cpu::new();
+  println!("==== First Boot");
+  println!(">> {cpu:?}");
 
   loop {
     if cpu.t_cycle(&mut *bus) {
-      println!("acted: {cpu:?}");
+      println!(">> {cpu:?}");
     }
   }
 }

@@ -17,6 +17,6 @@ impl DataBus for MBC1 {
     self.rom[addr as usize]
   }
   fn write(&mut self, _addr: u16, _byte: u8) {
-    //
+    todo!()
   }
 }

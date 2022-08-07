@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 bitfrob = "0.2.1"
+bytemuck = "1.11.0"
 tinyvec = { version = "1.6.0", features = ["rustc_1_57"] }
