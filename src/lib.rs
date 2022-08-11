@@ -1,4 +1,6 @@
 //#![no_std]
+#![allow(unused)]
+#![cfg_attr(test, allow(nonstandard_style))]
 
 extern crate alloc;
 

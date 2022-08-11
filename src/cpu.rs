@@ -1,8 +1,10 @@
+use alloc::collections::VecDeque;
 use core::{
   fmt::Debug,
-  ops::{Deref, DerefMut},
+  ops::{Deref, DerefMut, Not},
 };
-use std::collections::VecDeque;
+
+use bytemuck::cast_mut;
 
 use crate::{data_bus::DataBus, reg16::Reg16, reg8::Reg8, reg_flags::RegFlags};
 
@@ -31,9 +33,9 @@ pub struct Cpu {
   pub imm: u16,
 }
 impl Debug for Cpu {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     let q = self.deref();
-    write!(f, "CPU {{ f:{f:?}, a:{a:02X}, c:{c:02X}, b:{b:02X}, e:{e:02X}, d:{d:02X}, l:{l:02X}, h:{h:02X}, sp:{sp:04X}, pc:{pc:04X}, imm:${imm:04X}, t:{t}, action_queue:{action_queue:?} }}", f = q.flags, a = q.a, c = q.c, b = q.b, e = q.e, d=q.e, l=q.l,h=q.h,sp=q.sp, pc=q.pc, t=q.t_cycles, action_queue=q.action_queue, imm = q.imm)
+    write!(f, "CPU {{ f:{f:?}, a:{a:02X}, b:{b:02X}, c:{c:02X}, d:{d:02X}, e:{e:02X}, h:{h:02X}, l:{l:02X}, sp:{sp:04X}, pc:{pc:04X}, imm:${imm:04X}, t:{t}, action_queue:{action_queue:?} }}", f = q.flags, a = q.a, c = q.c, b = q.b, e = q.e, d=q.e, l=q.l,h=q.h,sp=q.sp, pc=q.pc, t=q.t_cycles, action_queue=q.action_queue, imm = q.imm)
   }
 }
 impl Deref for Cpu {
@@ -54,11 +56,18 @@ impl DerefMut for Cpu {
 impl Cpu {
   pub fn new() -> Self {
     Self {
+      // Note(Lokathor): The CPU registers after the boot vary depend on which
+      // Boot ROM was used to do the start up sequence. Each major model of
+      // GB-playing-device has its own Boot ROM with small variations. The only
+      // registers that have a consistent value after boot are PC and SP. For
+      // simplicity we just zero all the general registers.
+      //
+      // See: https://gbdev.io/pandocs/Power_Up_Sequence.html#cpu-registers
       af: Reg16::new(0),
       bc: Reg16::new(0),
       de: Reg16::new(0),
       hl: Reg16::new(0),
-      sp: Reg16::new(0),
+      sp: Reg16::new(0xFFFE),
       pc: Reg16::new(0x0100),
       t_cycles: 0,
       action_queue: VecDeque::default(),
@@ -88,24 +97,14 @@ impl Cpu {
         Action::FetchImmLow => {
           //println!("fetching immediate low byte");
           let b = self.fetch_pc(bus);
-          let imm_mut: &mut [u8; 2] =
-            bytemuck::cast_mut::<u16, [u8; 2]>(&mut self.imm);
-          if cfg!(target_endian = "little") {
-            imm_mut[0] = b;
-          } else {
-            imm_mut[1] = b;
-          }
+          let imm_mut: &mut [u8; 2] = cast_mut::<u16, [u8; 2]>(&mut self.imm);
+          imm_mut[usize::from(cfg!(target_endian = "little").not())] = b;
         }
         Action::FetchImmHigh(target) => {
           //println!("fetching immediate high byte");
           let b = self.fetch_pc(bus);
-          let imm_mut: &mut [u8; 2] =
-            bytemuck::cast_mut::<u16, [u8; 2]>(&mut self.imm);
-          if cfg!(target_endian = "little") {
-            imm_mut[1] = b;
-          } else {
-            imm_mut[0] = b;
-          }
+          let imm_mut: &mut [u8; 2] = cast_mut::<u16, [u8; 2]>(&mut self.imm);
+          imm_mut[usize::from(cfg!(target_endian = "little"))] = b;
           match target {
             R16_::SP => self.sp.set(self.imm),
             R16_::PC => self.pc.set(self.imm),
