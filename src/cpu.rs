@@ -2,11 +2,19 @@ use alloc::collections::VecDeque;
 use core::{
   fmt::Debug,
   ops::{Deref, DerefMut, Not},
+  slice,
 };
 
-use bytemuck::cast_mut;
+use bytemuck::{cast_mut, cast_slice, cast_slice_mut};
 
-use crate::{data_bus::DataBus, reg16::Reg16, reg8::Reg8, reg_flags::RegFlags};
+use crate::{
+  data_bus::DataBus,
+  op_actions::{ActionRegister, CpuAction, ACTION_TABLE},
+  op_disassembly::DISASSEMBLY_TABLE,
+  reg16::Reg16,
+  reg8::Reg8,
+  reg_flags::RegFlags,
+};
 
 /// Simulates the Game Boy's LR35902 CPU.
 ///
@@ -29,7 +37,7 @@ pub struct Cpu {
   pub sp: Reg16,
   pub pc: Reg16,
   pub t_cycles: u32,
-  pub action_queue: VecDeque<Action>,
+  pub action_queue: VecDeque<CpuAction>,
   pub imm: u16,
 }
 impl Debug for Cpu {
@@ -77,6 +85,7 @@ impl Cpu {
 
   pub fn fetch_pc(&mut self, bus: &mut dyn DataBus) -> u8 {
     let b = bus.read(self.pc.get());
+    //println!("FETCH: ${b:02X}");
     self.pc.inc();
     b
   }
@@ -91,56 +100,85 @@ impl Cpu {
     if self.t_cycles % 4 != 0 {
       return false;
     }
-    if let Some(action) = self.action_queue.pop_front() {
-      match action {
-        Action::Internal => (),
-        Action::FetchImmLow => {
-          //println!("fetching immediate low byte");
-          let b = self.fetch_pc(bus);
-          let imm_mut: &mut [u8; 2] = cast_mut::<u16, [u8; 2]>(&mut self.imm);
-          imm_mut[usize::from(cfg!(target_endian = "little").not())] = b;
-        }
-        Action::FetchImmHigh(target) => {
-          //println!("fetching immediate high byte");
-          let b = self.fetch_pc(bus);
-          let imm_mut: &mut [u8; 2] = cast_mut::<u16, [u8; 2]>(&mut self.imm);
-          imm_mut[usize::from(cfg!(target_endian = "little"))] = b;
-          match target {
-            R16_::SP => self.sp.set(self.imm),
-            R16_::PC => self.pc.set(self.imm),
-          }
+    // When there's no pending actions we have to get a new op code to queue up
+    // some actions. After we do this we *also* perform one action, so the
+    // actions table must be arranged appropriately. Anything that happens as
+    // soon as the op-code comes in (eg: `ld a, b`) will be just 1 action.
+    if self.action_queue.is_empty() {
+      let op_code = self.fetch_pc(bus);
+      let disassembly = DISASSEMBLY_TABLE[usize::from(op_code)];
+      let actions = ACTION_TABLE[usize::from(op_code)];
+      println!(
+        "Queue Code (${op_code:02X}): {disassembly: <17} // {actions:?}"
+      );
+      self.action_queue.extend(actions.iter().copied());
+    }
+    let action = self.action_queue.pop_front().unwrap();
+    self.process_action(bus, action);
+    true
+  }
+
+  fn process_action(&mut self, bus: &mut dyn DataBus, action: CpuAction) {
+    use CpuAction::*;
+    match action {
+      Internal => (),
+      DisableInterrupts => (/* TODO*/),
+      ImmLow => {
+        let imm8 = self.fetch_pc(bus);
+        let imm_bytes: &mut [u8] =
+          cast_slice_mut(slice::from_mut(&mut self.imm));
+        let index = usize::from(cfg!(target_endian = "little").not());
+        imm_bytes[index] = imm8;
+      }
+      ImmLowTo(reg) => match reg {
+        ActionRegister::A => {
+          let imm8 = self.fetch_pc(bus);
+          //println!("ImmLowTo({reg:?}): ${imm8:02X}");
+          self.a.set(imm8);
           self.imm = 0;
         }
+        ActionRegister::PC => todo!(),
+        ActionRegister::SP => todo!(),
+      },
+      ImmHigh => {
+        let imm8 = self.fetch_pc(bus);
+        let imm_bytes: &mut [u8] =
+          cast_slice_mut(slice::from_mut(&mut self.imm));
+        let index = usize::from(cfg!(target_endian = "little"));
+        imm_bytes[index] = imm8;
       }
-    } else {
-      // When the queue is empty, we default to fetching the next op code.
-      let op_code = self.fetch_pc(bus);
-      print!("==== New Instruction({op_code:02X}): ");
-      match op_code {
-        0x00 => {
-          println!("NOP");
+      ImmHighTo(reg) => {
+        let imm8 = self.fetch_pc(bus);
+        let imm_bytes: &mut [u8] =
+          cast_slice_mut(slice::from_mut(&mut self.imm));
+        let index = usize::from(cfg!(target_endian = "little"));
+        imm_bytes[index] = imm8;
+        match reg {
+          ActionRegister::PC => self.pc.set(self.imm),
+          ActionRegister::SP => self.sp.set(self.imm),
+          ActionRegister::A => todo!(),
         }
-        0x31 => {
-          println!("LD SP, u16");
-          self.action_queue.push_back(Action::FetchImmLow);
-          self.action_queue.push_back(Action::FetchImmHigh(R16_::SP));
-        }
-        0xC3 => {
-          println!("JP u16");
-          self.action_queue.push_back(Action::FetchImmLow);
-          self.action_queue.push_back(Action::FetchImmHigh(R16_::PC));
-          self.action_queue.push_back(Action::Internal);
-        }
-        0xF3 => {
-          println!("DI (todo)");
-        }
-        other => {
-          println!("???");
-          todo!("Unknown Op Code {other:02X}")
-        }
+        self.imm = 0;
+      }
+      WriteRegToImm16(reg) => {
+        match reg {
+          ActionRegister::A => bus.write(self.imm, self.a.get()),
+          ActionRegister::PC => todo!(),
+          ActionRegister::SP => todo!(),
+        };
+        self.imm = 0;
+      }
+      WriteRegToHalfAddr(reg) => {
+        debug_assert!(self.imm <= u16::from(u8::MAX));
+        let addr = 0xFF00 + self.imm;
+        match reg {
+          ActionRegister::A => bus.write(addr, self.a.get()),
+          ActionRegister::PC => todo!(),
+          ActionRegister::SP => todo!(),
+        };
+        self.imm = 0;
       }
     }
-    true
   }
 }
 
@@ -163,27 +201,6 @@ pub struct CpuByteFields {
   pub sp: Reg16,
   pub pc: Reg16,
   pub t_cycles: u32,
-  pub action_queue: VecDeque<Action>,
+  pub action_queue: VecDeque<CpuAction>,
   pub imm: u16,
-}
-
-/// A pending action for the CPU to perform.
-///
-/// Each action takes 4 T-cycles to complete.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Action {
-  /// Fetch into the low byte of the imm buffer.
-  FetchImmLow,
-  /// Fetch into the high byte of the imm buffer and move the buffer to the
-  /// 16-bit register specified. For simplicity, this clears the immediate
-  /// buffer, which is a fake concept that's not really part of the GB anyway.
-  FetchImmHigh(R16_),
-  /// Burn some time.
-  Internal,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum R16_ {
-  SP,
-  PC,
 }

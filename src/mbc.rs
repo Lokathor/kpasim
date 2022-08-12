@@ -16,7 +16,8 @@ impl DataBus for MBC1 {
     assert!(addr <= 0x3FFF, "illegal read: {addr:04X}");
     self.rom[addr as usize]
   }
-  fn write(&mut self, _addr: u16, _byte: u8) {
-    todo!()
+  fn write(&mut self, addr: u16, byte: u8) {
+    println!("Wrote ${byte:02X} to ${addr:04X}")
+    /* TODO */
   }
 }

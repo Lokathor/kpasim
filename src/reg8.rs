@@ -5,6 +5,17 @@ use core::fmt::{
 #[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Reg8(u8);
+impl Reg8 {
+  pub const fn new(u: u8) -> Self {
+    Self(u)
+  }
+  pub const fn get(self) -> u8 {
+    self.0
+  }
+  pub fn set(&mut self, u: u8) {
+    self.0 = u;
+  }
+}
 
 impl Debug for Reg8 {
   /// Prints the value as an unsigned decimal, or signed if you use alternate
