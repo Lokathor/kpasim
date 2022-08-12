@@ -187,15 +187,40 @@
 <span id="187">187</span>
 <span id="188">188</span>
 <span id="189">189</span>
+<span id="190">190</span>
+<span id="191">191</span>
+<span id="192">192</span>
+<span id="193">193</span>
+<span id="194">194</span>
+<span id="195">195</span>
+<span id="196">196</span>
+<span id="197">197</span>
+<span id="198">198</span>
+<span id="199">199</span>
+<span id="200">200</span>
+<span id="201">201</span>
+<span id="202">202</span>
+<span id="203">203</span>
+<span id="204">204</span>
+<span id="205">205</span>
+<span id="206">206</span>
 </pre><pre class="rust"><code><span class="kw">use</span> <span class="ident">alloc::collections::VecDeque</span>;
 <span class="kw">use</span> <span class="ident">core</span>::{
   <span class="ident">fmt::Debug</span>,
   <span class="ident">ops</span>::{<span class="ident">Deref</span>, <span class="ident">DerefMut</span>, <span class="ident">Not</span>},
+  <span class="ident">slice</span>,
 };
 
-<span class="kw">use</span> <span class="ident">bytemuck::cast_mut</span>;
+<span class="kw">use</span> <span class="ident">bytemuck</span>::{<span class="ident">cast_mut</span>, <span class="ident">cast_slice</span>, <span class="ident">cast_slice_mut</span>};
 
-<span class="kw">use</span> <span class="kw">crate</span>::{<span class="ident">data_bus::DataBus</span>, <span class="ident">reg16::Reg16</span>, <span class="ident">reg8::Reg8</span>, <span class="ident">reg_flags::RegFlags</span>};
+<span class="kw">use</span> <span class="kw">crate</span>::{
+  <span class="ident">data_bus::DataBus</span>,
+  <span class="ident">op_actions</span>::{<span class="ident">ActionRegister</span>, <span class="ident">CpuAction</span>, <span class="ident">ACTION_TABLE</span>},
+  <span class="ident">op_disassembly::DISASSEMBLY_TABLE</span>,
+  <span class="ident">reg16::Reg16</span>,
+  <span class="ident">reg8::Reg8</span>,
+  <span class="ident">reg_flags::RegFlags</span>,
+};
 
 <span class="doccomment">/// Simulates the Game Boy&#39;s LR35902 CPU.</span>
 <span class="doccomment">///</span>
@@ -218,7 +243,7 @@
   <span class="kw">pub</span> <span class="ident">sp</span>: <span class="ident">Reg16</span>,
   <span class="kw">pub</span> <span class="ident">pc</span>: <span class="ident">Reg16</span>,
   <span class="kw">pub</span> <span class="ident">t_cycles</span>: <span class="ident">u32</span>,
-  <span class="kw">pub</span> <span class="ident">action_queue</span>: <span class="ident">VecDeque</span><span class="op">&lt;</span><span class="ident">Action</span><span class="op">&gt;</span>,
+  <span class="kw">pub</span> <span class="ident">action_queue</span>: <span class="ident">VecDeque</span><span class="op">&lt;</span><span class="ident">CpuAction</span><span class="op">&gt;</span>,
   <span class="kw">pub</span> <span class="ident">imm</span>: <span class="ident">u16</span>,
 }
 <span class="kw">impl</span> <span class="ident">Debug</span> <span class="kw">for</span> <span class="ident">Cpu</span> {
@@ -266,6 +291,7 @@
 
   <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">fetch_pc</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">bus</span>: <span class="kw-2">&amp;mut</span> <span class="kw">dyn</span> <span class="ident">DataBus</span>) -&gt; <span class="ident">u8</span> {
     <span class="kw">let</span> <span class="ident">b</span> <span class="op">=</span> <span class="ident">bus</span>.<span class="ident">read</span>(<span class="self">self</span>.<span class="ident">pc</span>.<span class="ident">get</span>());
+    <span class="comment">//println!(&quot;FETCH: ${b:02X}&quot;);</span>
     <span class="self">self</span>.<span class="ident">pc</span>.<span class="ident">inc</span>();
     <span class="ident">b</span>
   }
@@ -280,56 +306,85 @@
     <span class="kw">if</span> <span class="self">self</span>.<span class="ident">t_cycles</span> <span class="op">%</span> <span class="number">4</span> <span class="op">!</span><span class="op">=</span> <span class="number">0</span> {
       <span class="kw">return</span> <span class="bool-val">false</span>;
     }
-    <span class="kw">if</span> <span class="kw">let</span> <span class="prelude-val">Some</span>(<span class="ident">action</span>) <span class="op">=</span> <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">pop_front</span>() {
-      <span class="kw">match</span> <span class="ident">action</span> {
-        <span class="ident">Action::Internal</span> =&gt; (),
-        <span class="ident">Action::FetchImmLow</span> =&gt; {
-          <span class="comment">//println!(&quot;fetching immediate low byte&quot;);</span>
-          <span class="kw">let</span> <span class="ident">b</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">fetch_pc</span>(<span class="ident">bus</span>);
-          <span class="kw">let</span> <span class="ident">imm_mut</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>; <span class="number">2</span>] <span class="op">=</span> <span class="ident">cast_mut</span>::<span class="op">&lt;</span><span class="ident">u16</span>, [<span class="ident">u8</span>; <span class="number">2</span>]<span class="op">&gt;</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">imm</span>);
-          <span class="ident">imm_mut</span>[<span class="ident">usize::from</span>(<span class="macro">cfg!</span>(<span class="ident">target_endian</span> <span class="op">=</span> <span class="string">&quot;little&quot;</span>).<span class="ident">not</span>())] <span class="op">=</span> <span class="ident">b</span>;
-        }
-        <span class="ident">Action::FetchImmHigh</span>(<span class="ident">target</span>) =&gt; {
-          <span class="comment">//println!(&quot;fetching immediate high byte&quot;);</span>
-          <span class="kw">let</span> <span class="ident">b</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">fetch_pc</span>(<span class="ident">bus</span>);
-          <span class="kw">let</span> <span class="ident">imm_mut</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>; <span class="number">2</span>] <span class="op">=</span> <span class="ident">cast_mut</span>::<span class="op">&lt;</span><span class="ident">u16</span>, [<span class="ident">u8</span>; <span class="number">2</span>]<span class="op">&gt;</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">imm</span>);
-          <span class="ident">imm_mut</span>[<span class="ident">usize::from</span>(<span class="macro">cfg!</span>(<span class="ident">target_endian</span> <span class="op">=</span> <span class="string">&quot;little&quot;</span>))] <span class="op">=</span> <span class="ident">b</span>;
-          <span class="kw">match</span> <span class="ident">target</span> {
-            <span class="ident">R16_::SP</span> =&gt; <span class="self">self</span>.<span class="ident">sp</span>.<span class="ident">set</span>(<span class="self">self</span>.<span class="ident">imm</span>),
-            <span class="ident">R16_::PC</span> =&gt; <span class="self">self</span>.<span class="ident">pc</span>.<span class="ident">set</span>(<span class="self">self</span>.<span class="ident">imm</span>),
-          }
+    <span class="comment">// When there&#39;s no pending actions we have to get a new op code to queue up</span>
+    <span class="comment">// some actions. After we do this we *also* perform one action, so the</span>
+    <span class="comment">// actions table must be arranged appropriately. Anything that happens as</span>
+    <span class="comment">// soon as the op-code comes in (eg: `ld a, b`) will be just 1 action.</span>
+    <span class="kw">if</span> <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">is_empty</span>() {
+      <span class="kw">let</span> <span class="ident">op_code</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">fetch_pc</span>(<span class="ident">bus</span>);
+      <span class="kw">let</span> <span class="ident">disassembly</span> <span class="op">=</span> <span class="ident">DISASSEMBLY_TABLE</span>[<span class="ident">usize::from</span>(<span class="ident">op_code</span>)];
+      <span class="kw">let</span> <span class="ident">actions</span> <span class="op">=</span> <span class="ident">ACTION_TABLE</span>[<span class="ident">usize::from</span>(<span class="ident">op_code</span>)];
+      <span class="macro">println!</span>(
+        <span class="string">&quot;Queue Code (${op_code:02X}): {disassembly: &lt;17} // {actions:?}&quot;</span>
+      );
+      <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">extend</span>(<span class="ident">actions</span>.<span class="ident">iter</span>().<span class="ident">copied</span>());
+    }
+    <span class="kw">let</span> <span class="ident">action</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">pop_front</span>().<span class="ident">unwrap</span>();
+    <span class="self">self</span>.<span class="ident">process_action</span>(<span class="ident">bus</span>, <span class="ident">action</span>);
+    <span class="bool-val">true</span>
+  }
+
+  <span class="kw">fn</span> <span class="ident">process_action</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">bus</span>: <span class="kw-2">&amp;mut</span> <span class="kw">dyn</span> <span class="ident">DataBus</span>, <span class="ident">action</span>: <span class="ident">CpuAction</span>) {
+    <span class="kw">use</span> <span class="ident">CpuAction</span>::<span class="kw-2">*</span>;
+    <span class="kw">match</span> <span class="ident">action</span> {
+      <span class="ident">Internal</span> =&gt; (),
+      <span class="ident">DisableInterrupts</span> =&gt; (<span class="comment">/* TODO*/</span>),
+      <span class="ident">ImmLow</span> =&gt; {
+        <span class="kw">let</span> <span class="ident">imm8</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">fetch_pc</span>(<span class="ident">bus</span>);
+        <span class="kw">let</span> <span class="ident">imm_bytes</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>] <span class="op">=</span>
+          <span class="ident">cast_slice_mut</span>(<span class="ident">slice::from_mut</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">imm</span>));
+        <span class="kw">let</span> <span class="ident">index</span> <span class="op">=</span> <span class="ident">usize::from</span>(<span class="macro">cfg!</span>(<span class="ident">target_endian</span> <span class="op">=</span> <span class="string">&quot;little&quot;</span>).<span class="ident">not</span>());
+        <span class="ident">imm_bytes</span>[<span class="ident">index</span>] <span class="op">=</span> <span class="ident">imm8</span>;
+      }
+      <span class="ident">ImmLowTo</span>(<span class="ident">reg</span>) =&gt; <span class="kw">match</span> <span class="ident">reg</span> {
+        <span class="ident">ActionRegister::A</span> =&gt; {
+          <span class="kw">let</span> <span class="ident">imm8</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">fetch_pc</span>(<span class="ident">bus</span>);
+          <span class="comment">//println!(&quot;ImmLowTo({reg:?}): ${imm8:02X}&quot;);</span>
+          <span class="self">self</span>.<span class="ident">a</span>.<span class="ident">set</span>(<span class="ident">imm8</span>);
           <span class="self">self</span>.<span class="ident">imm</span> <span class="op">=</span> <span class="number">0</span>;
         }
+        <span class="ident">ActionRegister::PC</span> =&gt; <span class="macro">todo!</span>(),
+        <span class="ident">ActionRegister::SP</span> =&gt; <span class="macro">todo!</span>(),
+      },
+      <span class="ident">ImmHigh</span> =&gt; {
+        <span class="kw">let</span> <span class="ident">imm8</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">fetch_pc</span>(<span class="ident">bus</span>);
+        <span class="kw">let</span> <span class="ident">imm_bytes</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>] <span class="op">=</span>
+          <span class="ident">cast_slice_mut</span>(<span class="ident">slice::from_mut</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">imm</span>));
+        <span class="kw">let</span> <span class="ident">index</span> <span class="op">=</span> <span class="ident">usize::from</span>(<span class="macro">cfg!</span>(<span class="ident">target_endian</span> <span class="op">=</span> <span class="string">&quot;little&quot;</span>));
+        <span class="ident">imm_bytes</span>[<span class="ident">index</span>] <span class="op">=</span> <span class="ident">imm8</span>;
       }
-    } <span class="kw">else</span> {
-      <span class="comment">// When the queue is empty, we default to fetching the next op code.</span>
-      <span class="kw">let</span> <span class="ident">op_code</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">fetch_pc</span>(<span class="ident">bus</span>);
-      <span class="macro">print!</span>(<span class="string">&quot;==== New Instruction({op_code:02X}): &quot;</span>);
-      <span class="kw">match</span> <span class="ident">op_code</span> {
-        <span class="number">0x00</span> =&gt; {
-          <span class="macro">println!</span>(<span class="string">&quot;NOP&quot;</span>);
+      <span class="ident">ImmHighTo</span>(<span class="ident">reg</span>) =&gt; {
+        <span class="kw">let</span> <span class="ident">imm8</span> <span class="op">=</span> <span class="self">self</span>.<span class="ident">fetch_pc</span>(<span class="ident">bus</span>);
+        <span class="kw">let</span> <span class="ident">imm_bytes</span>: <span class="kw-2">&amp;mut</span> [<span class="ident">u8</span>] <span class="op">=</span>
+          <span class="ident">cast_slice_mut</span>(<span class="ident">slice::from_mut</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>.<span class="ident">imm</span>));
+        <span class="kw">let</span> <span class="ident">index</span> <span class="op">=</span> <span class="ident">usize::from</span>(<span class="macro">cfg!</span>(<span class="ident">target_endian</span> <span class="op">=</span> <span class="string">&quot;little&quot;</span>));
+        <span class="ident">imm_bytes</span>[<span class="ident">index</span>] <span class="op">=</span> <span class="ident">imm8</span>;
+        <span class="kw">match</span> <span class="ident">reg</span> {
+          <span class="ident">ActionRegister::PC</span> =&gt; <span class="self">self</span>.<span class="ident">pc</span>.<span class="ident">set</span>(<span class="self">self</span>.<span class="ident">imm</span>),
+          <span class="ident">ActionRegister::SP</span> =&gt; <span class="self">self</span>.<span class="ident">sp</span>.<span class="ident">set</span>(<span class="self">self</span>.<span class="ident">imm</span>),
+          <span class="ident">ActionRegister::A</span> =&gt; <span class="macro">todo!</span>(),
         }
-        <span class="number">0x31</span> =&gt; {
-          <span class="macro">println!</span>(<span class="string">&quot;LD SP, u16&quot;</span>);
-          <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">push_back</span>(<span class="ident">Action::FetchImmLow</span>);
-          <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">push_back</span>(<span class="ident">Action::FetchImmHigh</span>(<span class="ident">R16_::SP</span>));
-        }
-        <span class="number">0xC3</span> =&gt; {
-          <span class="macro">println!</span>(<span class="string">&quot;JP u16&quot;</span>);
-          <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">push_back</span>(<span class="ident">Action::FetchImmLow</span>);
-          <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">push_back</span>(<span class="ident">Action::FetchImmHigh</span>(<span class="ident">R16_::PC</span>));
-          <span class="self">self</span>.<span class="ident">action_queue</span>.<span class="ident">push_back</span>(<span class="ident">Action::Internal</span>);
-        }
-        <span class="number">0xF3</span> =&gt; {
-          <span class="macro">println!</span>(<span class="string">&quot;DI (todo)&quot;</span>);
-        }
-        <span class="ident">other</span> =&gt; {
-          <span class="macro">println!</span>(<span class="string">&quot;???&quot;</span>);
-          <span class="macro">todo!</span>(<span class="string">&quot;Unknown Op Code {other:02X}&quot;</span>)
-        }
+        <span class="self">self</span>.<span class="ident">imm</span> <span class="op">=</span> <span class="number">0</span>;
+      }
+      <span class="ident">WriteRegToImm16</span>(<span class="ident">reg</span>) =&gt; {
+        <span class="kw">match</span> <span class="ident">reg</span> {
+          <span class="ident">ActionRegister::A</span> =&gt; <span class="ident">bus</span>.<span class="ident">write</span>(<span class="self">self</span>.<span class="ident">imm</span>, <span class="self">self</span>.<span class="ident">a</span>.<span class="ident">get</span>()),
+          <span class="ident">ActionRegister::PC</span> =&gt; <span class="macro">todo!</span>(),
+          <span class="ident">ActionRegister::SP</span> =&gt; <span class="macro">todo!</span>(),
+        };
+        <span class="self">self</span>.<span class="ident">imm</span> <span class="op">=</span> <span class="number">0</span>;
+      }
+      <span class="ident">WriteRegToHalfAddr</span>(<span class="ident">reg</span>) =&gt; {
+        <span class="macro">debug_assert!</span>(<span class="self">self</span>.<span class="ident">imm</span> <span class="op">&lt;</span><span class="op">=</span> <span class="ident">u16::from</span>(<span class="ident">u8::MAX</span>));
+        <span class="kw">let</span> <span class="ident">addr</span> <span class="op">=</span> <span class="number">0xFF00</span> <span class="op">+</span> <span class="self">self</span>.<span class="ident">imm</span>;
+        <span class="kw">match</span> <span class="ident">reg</span> {
+          <span class="ident">ActionRegister::A</span> =&gt; <span class="ident">bus</span>.<span class="ident">write</span>(<span class="ident">addr</span>, <span class="self">self</span>.<span class="ident">a</span>.<span class="ident">get</span>()),
+          <span class="ident">ActionRegister::PC</span> =&gt; <span class="macro">todo!</span>(),
+          <span class="ident">ActionRegister::SP</span> =&gt; <span class="macro">todo!</span>(),
+        };
+        <span class="self">self</span>.<span class="ident">imm</span> <span class="op">=</span> <span class="number">0</span>;
       }
     }
-    <span class="bool-val">true</span>
   }
 }
 
@@ -352,29 +407,8 @@
   <span class="kw">pub</span> <span class="ident">sp</span>: <span class="ident">Reg16</span>,
   <span class="kw">pub</span> <span class="ident">pc</span>: <span class="ident">Reg16</span>,
   <span class="kw">pub</span> <span class="ident">t_cycles</span>: <span class="ident">u32</span>,
-  <span class="kw">pub</span> <span class="ident">action_queue</span>: <span class="ident">VecDeque</span><span class="op">&lt;</span><span class="ident">Action</span><span class="op">&gt;</span>,
+  <span class="kw">pub</span> <span class="ident">action_queue</span>: <span class="ident">VecDeque</span><span class="op">&lt;</span><span class="ident">CpuAction</span><span class="op">&gt;</span>,
   <span class="kw">pub</span> <span class="ident">imm</span>: <span class="ident">u16</span>,
 }
-
-<span class="doccomment">/// A pending action for the CPU to perform.</span>
-<span class="doccomment">///</span>
-<span class="doccomment">/// Each action takes 4 T-cycles to complete.</span>
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Clone</span>, <span class="ident">Copy</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">PartialOrd</span>, <span class="ident">Ord</span>, <span class="ident">Hash</span>)]</span>
-<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">Action</span> {
-  <span class="doccomment">/// Fetch into the low byte of the imm buffer.</span>
-  <span class="ident">FetchImmLow</span>,
-  <span class="doccomment">/// Fetch into the high byte of the imm buffer and move the buffer to the</span>
-  <span class="doccomment">/// 16-bit register specified. For simplicity, this clears the immediate</span>
-  <span class="doccomment">/// buffer, which is a fake concept that&#39;s not really part of the GB anyway.</span>
-  <span class="ident">FetchImmHigh</span>(<span class="ident">R16_</span>),
-  <span class="doccomment">/// Burn some time.</span>
-  <span class="ident">Internal</span>,
-}
-
-<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Debug</span>, <span class="ident">Clone</span>, <span class="ident">Copy</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">PartialOrd</span>, <span class="ident">Ord</span>, <span class="ident">Hash</span>)]</span>
-<span class="kw">pub</span> <span class="kw">enum</span> <span class="ident">R16_</span> {
-  <span class="ident">SP</span>,
-  <span class="ident">PC</span>,
-}
 </code></pre></div>
-</section></div></main><div id="rustdoc-vars" data-root-path="../../" data-current-crate="kpasim" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.65.0-nightly (29e4a9ee0 2022-08-10)" ></div></body></html>
+</section></div></main><div id="rustdoc-vars" data-root-path="../../" data-current-crate="kpasim" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.65.0-nightly (20ffea693 2022-08-11)" ></div></body></html>

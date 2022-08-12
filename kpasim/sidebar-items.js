@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":[["cpu",""],["data_bus",""],["mbc",""],["reg16",""],["reg8",""],["reg_flags",""]]};
+window.SIDEBAR_ITEMS = {"mod":[["cpu",""],["data_bus",""],["mbc",""],["op_actions","Op code action breakdown info, from https://izik1.github.io/gbops/"],["op_disassembly",""],["reg16",""],["reg8",""],["reg_flags",""]]};

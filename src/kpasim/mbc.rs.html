@@ -20,6 +20,7 @@
 <span id="20">20</span>
 <span id="21">21</span>
 <span id="22">22</span>
+<span id="23">23</span>
 </pre><pre class="rust"><code><span class="kw">use</span> <span class="ident">alloc</span>::{<span class="ident">boxed::Box</span>, <span class="ident">vec::Vec</span>};
 
 <span class="kw">use</span> <span class="ident"><span class="kw">crate</span>::data_bus::DataBus</span>;
@@ -38,9 +39,10 @@
     <span class="macro">assert!</span>(<span class="ident">addr</span> <span class="op">&lt;</span><span class="op">=</span> <span class="number">0x3FFF</span>, <span class="string">&quot;illegal read: {addr:04X}&quot;</span>);
     <span class="self">self</span>.<span class="ident">rom</span>[<span class="ident">addr</span> <span class="kw">as</span> <span class="ident">usize</span>]
   }
-  <span class="kw">fn</span> <span class="ident">write</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">_addr</span>: <span class="ident">u16</span>, <span class="ident">_byte</span>: <span class="ident">u8</span>) {
-    <span class="macro">todo!</span>()
+  <span class="kw">fn</span> <span class="ident">write</span>(<span class="kw-2">&amp;mut</span> <span class="self">self</span>, <span class="ident">addr</span>: <span class="ident">u16</span>, <span class="ident">byte</span>: <span class="ident">u8</span>) {
+    <span class="macro">println!</span>(<span class="string">&quot;Wrote ${byte:02X} to ${addr:04X}&quot;</span>)
+    <span class="comment">/* TODO */</span>
   }
 }
 </code></pre></div>
-</section></div></main><div id="rustdoc-vars" data-root-path="../../" data-current-crate="kpasim" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.65.0-nightly (29e4a9ee0 2022-08-10)" ></div></body></html>
+</section></div></main><div id="rustdoc-vars" data-root-path="../../" data-current-crate="kpasim" data-themes="ayu,dark,light" data-resource-suffix="" data-rustdoc-version="1.65.0-nightly (20ffea693 2022-08-11)" ></div></body></html>
